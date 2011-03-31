@@ -236,16 +236,47 @@
 
     <xs:complexType name="CONFIGURATION">
         <xs:sequence>
-            <xs:element name="property" minOccurs="1" maxOccurs="unbounded">
-                <xs:complexType>
-                    <xs:sequence>
-                        <xs:element name="name" minOccurs="1" maxOccurs="1" type="xs:string"/>
-                        <xs:element name="value" minOccurs="1" maxOccurs="1" type="xs:string"/>
-                        <xs:element name="description" minOccurs="0" maxOccurs="1" type="xs:string"/>
-                    </xs:sequence>
-                </xs:complexType>
-            </xs:element>
+            <xs:element name="property" minOccurs="1" maxOccurs="unbounded" type="workflow:CONFIGURATION-PROPERTY"/>
         </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="CONFIGURATION-PROPERTY">
+        <xs:sequence>
+            <xs:element name="name" minOccurs="1" maxOccurs="1" type="xs:string"/>
+            <xs:choice minOccurs="1" maxOccurs="1">
+                <xs:element name="value" type="xs:string"/>
+                <xs:element name="object" type="workflow:OBJECT"/>
+            </xs:choice>
+            <xs:element name="description" minOccurs="0" maxOccurs="1" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="OBJECT">
+        <xs:attribute name="class" type="xs:string" use="required" />
+        <xs:element name="constructor" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+                <xs:sequence>
+                    <xs:element name="arg" minOccurs="0" maxOccurs="unbounded" type="xs:string">
+                        <xs:attribute name="type" type="xs:string" use="required"/>
+                    </xs:element>
+                </xs:sequence>
+            </xs:complexType>
+        </xs:element>
+        <xs:element name="init" minOccurs="0" maxOccurs="1">
+            <xs:complexType>
+                <xs:sequence>
+                    <xs:element name="property" minOccurs="0" maxOccurs="unbounded" type="workflow:CONFIGURATION-PROPERTY"/>
+                    <xs:element name="call" minOccurs="0" maxOccurs="unbounded">
+                        <xs:complexType>
+                            <xs:attribute name="method" type="xs:string" use="required"/>
+                            <xs:sequence>
+                                <xs:element name="arg" minOccurs="0" maxOccurs="unbounded" type="xs:string" />
+                            </xs:sequence>
+                        </xs:complexType>
+                    </xs:element>
+                <xs:sequence>
+            </xs:complexType>
+        </xs:element>
     </xs:complexType>
 
     <xs:complexType name="STREAMING">
