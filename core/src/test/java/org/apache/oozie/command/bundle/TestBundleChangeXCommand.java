@@ -77,7 +77,7 @@ public class TestBundleChangeXCommand extends XDataTestCase {
     public void testBundleChange2() throws Exception {
         BundleJobBean bundleJob = this.addRecordToBundleJobTable(Job.Status.RUNNING, false);
 
-        CoordinatorJobBean coordJob = addRecordToCoordJobTable(CoordinatorJob.Status.SUCCEEDED, false);
+        CoordinatorJobBean coordJob = addRecordToCoordJobTable(CoordinatorJob.Status.SUCCEEDED, false, false);
         coordJob.setBundleId(bundleJob.getId());
         final JPAService jpaService = Services.get().get(JPAService.class);
         assertNotNull(jpaService);
@@ -157,5 +157,26 @@ public class TestBundleChangeXCommand extends XDataTestCase {
         catch (XException e) {
             assertEquals(ErrorCode.E1317, e.getErrorCode());
         }
+    }
+
+    /**
+     * Test : Change end time of a bundle
+     *
+     * @throws Exception
+     */
+    public void testBundleChange3() throws Exception {
+        BundleJobBean job = this.addRecordToBundleJobTable(Job.Status.PREP, false);
+        String dateStr = "2099-01-01T01:00Z";
+
+        JPAService jpaService = Services.get().get(JPAService.class);
+        assertNotNull(jpaService);
+        BundleJobGetJPAExecutor bundleJobGetCmd = new BundleJobGetJPAExecutor(job.getId());
+        job = jpaService.execute(bundleJobGetCmd);
+        assertEquals(job.getEndTime(), null);
+
+        new BundleJobChangeXCommand(job.getId(), "endtime=" + dateStr).call();
+
+        job = jpaService.execute(bundleJobGetCmd);
+        assertEquals(job.getEndTime(), DateUtils.parseDateUTC(dateStr));
     }
 }

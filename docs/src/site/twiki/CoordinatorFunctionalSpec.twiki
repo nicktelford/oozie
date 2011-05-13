@@ -12,6 +12,11 @@ The goal of this document is to define a coordinator engine system specialized i
 
 ---++ Changelog
 
+---+++!! 05/MAY/2011:
+
+   * Update coordinator schema 0.2
+
+
 ---+++!! 09/MAR/2011:
 
    * Update coordinator status
@@ -620,7 +625,7 @@ Conversely, when a user requests to resume a *PREPSUSPEND* coordinator job, oozi
 
 When a coordinator job starts, oozie puts the job in status *RUNNING* and start materializing workflow jobs based on job frequency.
 
-When a user requests to kill a coordinator job, oozie puts the job in status *KILLED* and it sends kill to all submitted workflow jobs.
+When a user requests to kill a coordinator job, oozie puts the job in status *KILLED* and it sends kill to all submitted workflow jobs. If any coordinator action finishes with not *KILLED*, oozie puts the coordinator job into *DONEWITHERROR*.
 
 When a user requests to suspend a coordinator job that is in *RUNNING* status, oozie puts the job in status *SUSPEND* and it suspends all submitted workflow jobs.
 
@@ -630,7 +635,8 @@ Conversely, when a user requests to resume a *SUSPEND* coordinator job, oozie pu
 
 A coordinator job creates workflow jobs (commonly coordinator actions) only for the duration of the coordinator job and only if the coordinator job is in *RUNNING* status. If the coordinator job has been suspended, when resumed it will create all the coordinator actions that should have been created during the time it was suspended, actions will not be lost, they will delayed.
 
-When the coordinator job materialization finishs and all workflow jobs finish, oozie updates the coordinator status accordingly. For example, if all workflows are SUCCEEDED, oozie put the coordinator job into *SUCCEEDED* status. However, if any workflow job finishes with not *SUCCEEDED* (e.g. *KILLED* or *FAILED*), oozie puts the coordinator job into *DONEWITHERROR*.
+When the coordinator job materialization finishs and all workflow jobs finish, oozie updates the coordinator status accordingly. For example, if all workflows are *SUCCEEDED*, oozie put the coordinator job into *SUCCEEDED* status. However, if any workflow job finishes with not *SUCCEEDED* (e.g. *KILLED* or *FAILED* or *TIMEOUT*), oozie puts the coordinator job into *DONEWITHERROR*. If all coordinator actions are *TIMEDOUT*, oozie puts the coordinator job into *DONEWITHERROR*.
+
 
 ---++++ 6.1.3. Coordinator Action
 
@@ -1924,7 +1930,17 @@ Coordinator application definition:
         </data-in>
       </input-events>
       <action>
-      ...
+        <app-path>${nameNode}/user/${coord:user()}/examples/apps/aggregator</app-path>
+        <configuration>
+            <property>
+              <name>nextInstance</name>
+              <value>${coord:dateOffset(coord:nominalTime(), 1, 'DAY')}</value>
+            </property>
+            <property>
+             <name>previousInstance</name>
+              <value>${coord:dateOffset(coord:nominalTime(), -1, 'DAY')}</value>
+            </property>
+         </configuration>
       </action>
    </coordinator-app>
 </verbatim>
@@ -1941,7 +1957,58 @@ The nominal times for the coordinator actions of this coordinator application ex
 
 These are the times the action where created (materialized).
 
----++++ 6.7.4. coord:nominalTime() EL Function (since Oozie 2.3)
+---++++ 6.7.4. coord:actualTime() EL Function
+
+The =${coord:actualTime()}= EL function resolves to the coordinator action actual creation datetime.
+
+When the coordinator action is created based on driver event, the current time is saved to action. An action's
+actual time is less than the nominal time if coordinator job is in running in current mode. If job is running
+as catch-up mode (job's start time is in the past), the actual time is greater than the nominal time.
+
+*%GREEN% Example: %ENDCOLOR%*:
+
+Coordinator application definition:
+
+<verbatim>
+   <coordinator-app name="app-coord" frequency="${coord:days(1)}"
+                    start="2011-05-01T24:00Z" end="2011-12-31T24:00Z" timezone="UTC"
+                    xmlns="uri:oozie:coordinator:0.1">
+     <datasets>
+       <dataset name="hourlyLogs" frequency="${coord:hours(1)}"
+                initial-instance="2011-04-01T01:00Z" timezone="UTC">
+         <uri-template>hdfs://bar:9000/app/logs/${YEAR}/${MONTH}/${DAY}/${HOUR}</uri-template>
+       </dataset>
+     </datasets>
+      <input-events>
+        <data-in name="inputLogs" dataset="hourlyLogs">
+          <start-instance>${coord:current(-23)}</start-instance>
+          <end-instance>${coord:current(0)}</end-instance>
+        </data-in>
+      </input-events>
+      <action>
+        <app-path>${nameNode}/user/${coord:user()}/examples/apps/aggregator</app-path>
+        <configuration>
+            <property>
+              <name>actualTime</name>
+              <value>${coord:formatTime(coord:actualTime(), 'yyyy-MM-dd')}</value>
+            </property>
+         </configuration>
+      </action>
+   </coordinator-app>
+</verbatim>
+
+The actual time for the coordinator actions of this coordinator application example will look like:
+
+If coordinator job was started at 2011-05-01, then actions' actualTime is
+<verbatim>
+  2011-05-01
+  2011-05-02
+  2011-05-03
+  ...
+  2011-12-31
+</verbatim>
+
+---++++ 6.7.5. coord:user() EL Function (since Oozie 2.3)
 
 The =coord:user()= function returns the user that started the coordinator job.
 
@@ -1969,11 +2036,11 @@ For example, if baseDate is '2009-01-01T00:00Z', instance is '2' and timeUnit is
           <configuration>
             <property>
               <name>nextInstance</name>
-              <value>${coord:dateOffset(coord:nominalTime(), 1, 'DAY'}</value>
+              <value>${coord:dateOffset(coord:nominalTime(), 1, 'DAY')}</value>
             </property>
             <property>
              <name>previousInstance</name>
-              <value>${coord:dateOffset(coord:nominalTime(), -1, 'DAY'}</value>
+              <value>${coord:dateOffset(coord:nominalTime(), -1, 'DAY')}</value>
             </property>
          </configuration>
        </workflow>
@@ -1982,6 +2049,14 @@ For example, if baseDate is '2009-01-01T00:00Z', instance is '2' and timeUnit is
 </verbatim>
 
 In this example, the 'nextInstance' will be '2009-01-02T24:00Z' for the first action. And the value of 'previousInstance' will be  '2008-12-31T24:00Z' for the same instance.
+
+---++++ 6.8.2. coord:formatTime(String ts, String format) EL Function (since Oozie 2.3.2)
+
+The =${coord:formatTime(String timeStamp, String format)}= function allows transformation of the standard ISO8601 timestamp strings into other desired formats.
+
+The format string should be in Java's [[http://download.oracle.com/javase/6/docs/api/java/text/SimpleDateFormat.html][SimpleDateFormat]] format.
+
+For example, if timeStamp is '2009-01-01T00:00Z' and format is 'yyyy', the returned date string will be '2009'.
 
 ---++ 7. Handling Timezones and Daylight Saving Time
 
@@ -2644,7 +2719,7 @@ Refer to the [[DG_CoordinatorRerun][Rerunning Coordinator Actions]] for details 
 ---++ Appendixes
 
 ---+++ Appendix A, Oozie Coordinator XML-Schema
----++++ Oozie Coordinator Schema
+---++++ Oozie Coordinator Schema 0.1
 <verbatim>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"  xmlns:coordinator="uri:oozie:coordinator:0.1"
     elementFormDefault="qualified" targetNamespace="uri:oozie:coordinator:0.1">
@@ -2675,6 +2750,117 @@ Refer to the [[DG_CoordinatorRerun][Rerunning Coordinator Actions]] for details 
             <xs:element name="timeout" type="xs:string" minOccurs="0" maxOccurs="1"/>
             <xs:element name="concurrency" type="xs:string" minOccurs="0" maxOccurs="1"/>
             <xs:element name="execution" type="xs:string" minOccurs="0" maxOccurs="1"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="DATASETS">
+        <xs:sequence minOccurs="0" maxOccurs="1">
+            <xs:element name="include" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element name="dataset" type="coordinator:SYNCDATASET" minOccurs="0" maxOccurs="1"/>
+            </xs:choice>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="SYNCDATASET">
+        <xs:sequence>
+            <xs:element name="uri-template" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="done-flag" type="xs:string" minOccurs="0" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="coordinator:IDENTIFIER" use="required"/>
+        <xs:attribute name="frequency" type="xs:string" use="required"/>
+        <xs:attribute name="initial-instance" type="xs:string" use="required"/>
+        <xs:attribute name="timezone" type="xs:string" use="required"/>
+    </xs:complexType>
+    <xs:complexType name="INPUTEVENTS">
+        <xs:sequence minOccurs="1" maxOccurs="1">
+            <xs:element name="data-in" type="coordinator:DATAIN" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="DATAIN">
+        <xs:choice minOccurs="1" maxOccurs="1">
+            <xs:element name="instance" type="xs:string" minOccurs="1" maxOccurs="unbounded"/>
+            <xs:sequence minOccurs="1" maxOccurs="1">
+                <xs:element name="start-instance" type="xs:string" minOccurs="1" maxOccurs="1"/>
+                <xs:element name="end-instance" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            </xs:sequence>
+        </xs:choice>
+        <xs:attribute name="name" type="coordinator:IDENTIFIER" use="required"/>
+        <xs:attribute name="dataset" type="coordinator:IDENTIFIER" use="required"/>
+    </xs:complexType>
+    <xs:complexType name="OUTPUTEVENTS">
+        <xs:sequence minOccurs="1" maxOccurs="1">
+            <xs:element name="data-out" type="coordinator:DATAOUT" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="DATAOUT">
+        <xs:sequence minOccurs="1" maxOccurs="1">
+            <xs:element name="instance" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="coordinator:IDENTIFIER" use="required"/>
+        <xs:attribute name="dataset" type="coordinator:IDENTIFIER" use="required"/>
+    </xs:complexType>
+    <xs:complexType name="ACTION">
+        <xs:sequence minOccurs="1" maxOccurs="1">
+            <xs:element name="workflow" type="coordinator:WORKFLOW" minOccurs="1" maxOccurs="1"/>
+            <xs:any namespace="uri:oozie:sla:0.1" minOccurs="0" maxOccurs="1"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="WORKFLOW">
+        <xs:sequence>
+            <xs:element name="app-path" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="configuration" type="coordinator:CONFIGURATION" minOccurs="0" maxOccurs="1"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="FLAG"/>
+    <xs:complexType name="CONFIGURATION">
+        <xs:sequence>
+            <xs:element name="property" minOccurs="1" maxOccurs="unbounded">
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element name="name" minOccurs="1" maxOccurs="1" type="xs:string"/>
+                        <xs:element name="value" minOccurs="1" maxOccurs="1" type="xs:string"/>
+                        <xs:element name="description" minOccurs="0" maxOccurs="1" type="xs:string"/>
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+</xs:schema>
+</verbatim>
+
+---++++ Oozie Coordinator Schema 0.2
+
+<verbatim>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:coordinator="uri:oozie:coordinator:0.2"
+           elementFormDefault="qualified" targetNamespace="uri:oozie:coordinator:0.2">
+
+    <xs:element name="coordinator-app" type="coordinator:COORDINATOR-APP"/>
+    <xs:element name="datasets" type="coordinator:DATASETS"/>
+    <xs:simpleType name="IDENTIFIER">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="([a-zA-Z]([\-_a-zA-Z0-9])*){1,39})"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:complexType name="COORDINATOR-APP">
+        <xs:sequence>
+            <xs:element name="controls" type="coordinator:CONTROLS" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="datasets" type="coordinator:DATASETS" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="input-events" type="coordinator:INPUTEVENTS" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="output-events" type="coordinator:OUTPUTEVENTS" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="action" type="coordinator:ACTION" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="coordinator:IDENTIFIER" use="required"/>
+        <xs:attribute name="frequency" type="xs:string" use="required"/>
+        <xs:attribute name="start" type="xs:string" use="required"/>
+        <xs:attribute name="end" type="xs:string" use="required"/>
+        <xs:attribute name="timezone" type="xs:string" use="required"/>
+    </xs:complexType>
+    <xs:complexType name="CONTROLS">
+        <xs:sequence minOccurs="0" maxOccurs="1">
+            <xs:element name="timeout" type="xs:string" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="concurrency" type="xs:string" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="execution" type="xs:string" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="throttle" type="xs:string" minOccurs="0" maxOccurs="1"/>
         </xs:sequence>
     </xs:complexType>
     <xs:complexType name="DATASETS">

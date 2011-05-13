@@ -49,6 +49,7 @@ public abstract class ResumeTransitionXCommand extends TransitionXCommand<Void> 
         else if (job.getStatus() == Job.Status.SUSPENDED) {
             job.setStatus(Job.Status.RUNNING);
         }
+        job.setPending();
     }
 
     /* (non-Javadoc)
@@ -57,9 +58,9 @@ public abstract class ResumeTransitionXCommand extends TransitionXCommand<Void> 
     @Override
     protected Void execute() throws CommandException {
         transitToNext();
-        updateJob();
         try {
             resumeChildren();
+            updateJob();
         } finally {
             notifyParent();
         }

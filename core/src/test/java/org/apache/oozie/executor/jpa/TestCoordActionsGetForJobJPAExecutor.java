@@ -32,9 +32,9 @@ public class TestCoordActionsGetForJobJPAExecutor extends XDataTestCase {
 
     public void testCoordActionsGetForJob() throws Exception {
         int actionNum = 1;
-        CoordinatorJobBean job = addRecordToCoordJobTable(CoordinatorJob.Status.RUNNING, false);
+        CoordinatorJobBean job = addRecordToCoordJobTable(CoordinatorJob.Status.RUNNING, false, false);
         CoordinatorActionBean action = addRecordToCoordActionTable(job.getId(), actionNum,
-                CoordinatorAction.Status.READY, "coord-action-get.xml");
+                CoordinatorAction.Status.READY, "coord-action-get.xml", 0);
         _testCoordActionsGetForJob(job, action);
     }
 

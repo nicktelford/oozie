@@ -1,10 +1,13 @@
 package org.apache.oozie.command.bundle;
 
+import java.util.Date;
+
 import org.apache.oozie.BundleJobBean;
 import org.apache.oozie.CoordinatorJobBean;
 import org.apache.oozie.client.CoordinatorJob;
 import org.apache.oozie.client.Job;
 import org.apache.oozie.executor.jpa.BundleJobGetJPAExecutor;
+import org.apache.oozie.executor.jpa.BundleJobInsertJPAExecutor;
 import org.apache.oozie.executor.jpa.CoordJobInsertJPAExecutor;
 import org.apache.oozie.executor.jpa.JPAExecutorException;
 import org.apache.oozie.service.JPAService;
@@ -38,8 +41,8 @@ public class TestBundleRerunXCommand extends XDataTestCase {
         BundleJobBean job = this.addRecordToBundleJobTable(Job.Status.SUCCEEDED, false);
         this.addRecordToBundleActionTable(job.getId(), "action1", 0, Job.Status.SUCCEEDED);
         this.addRecordToBundleActionTable(job.getId(), "action2", 0, Job.Status.SUCCEEDED);
-        addRecordToCoordJobTable("action1", CoordinatorJob.Status.SUCCEEDED, false);
-        addRecordToCoordJobTable("action2", CoordinatorJob.Status.SUCCEEDED, false);
+        addRecordToCoordJobTable("action1", CoordinatorJob.Status.SUCCEEDED, false, false);
+        addRecordToCoordJobTable("action2", CoordinatorJob.Status.SUCCEEDED, false, false);
 
         JPAService jpaService = Services.get().get(JPAService.class);
         assertNotNull(jpaService);
@@ -62,8 +65,8 @@ public class TestBundleRerunXCommand extends XDataTestCase {
         BundleJobBean job = this.addRecordToBundleJobTable(Job.Status.SUCCEEDED, false);
         this.addRecordToBundleActionTable(job.getId(), "action1", 0, Job.Status.SUCCEEDED);
         this.addRecordToBundleActionTable(job.getId(), "action2", 0, Job.Status.SUCCEEDED);
-        addRecordToCoordJobTable("action1", CoordinatorJob.Status.SUCCEEDED, false);
-        addRecordToCoordJobTable("action2", CoordinatorJob.Status.SUCCEEDED, false);
+        addRecordToCoordJobTable("action1", CoordinatorJob.Status.SUCCEEDED, false, false);
+        addRecordToCoordJobTable("action2", CoordinatorJob.Status.SUCCEEDED, false, false);
 
         JPAService jpaService = Services.get().get(JPAService.class);
         assertNotNull(jpaService);
@@ -77,8 +80,99 @@ public class TestBundleRerunXCommand extends XDataTestCase {
         assertEquals(Job.Status.RUNNING, job.getStatus());
     }
 
-    protected CoordinatorJobBean addRecordToCoordJobTable(String coordId, CoordinatorJob.Status status, boolean pending) throws Exception {
-        CoordinatorJobBean coordJob = createCoordJob(status, pending);
+    /**
+     * Test : Rerun PREP bundle job
+     *
+     * @throws Exception
+     */
+    public void testBundleRerunInPrep() throws Exception {
+        Date curr = new Date();
+        Date pauseTime = new Date(curr.getTime() - 1000);
+        BundleJobBean job = this.addRecordToBundleJobTableWithPausedTime(Job.Status.PREP, false, pauseTime);
+
+        JPAService jpaService = Services.get().get(JPAService.class);
+        assertNotNull(jpaService);
+        BundleJobGetJPAExecutor bundleJobGetExecutor = new BundleJobGetJPAExecutor(job.getId());
+        job = jpaService.execute(bundleJobGetExecutor);
+        assertEquals(Job.Status.PREP, job.getStatus());
+
+        new BundleRerunXCommand(job.getId(), "action2", null, false, true).call();
+
+        job = jpaService.execute(bundleJobGetExecutor);
+        assertEquals(Job.Status.PREP, job.getStatus());
+    }
+
+    /**
+     * Test : Rerun paused bundle job
+     *
+     * @throws Exception
+     */
+    public void testBundleRerunInPaused() throws Exception {
+        Date curr = new Date();
+        Date pauseTime = new Date(curr.getTime() - 1000);
+        BundleJobBean job = this.addRecordToBundleJobTableWithPausedTime(Job.Status.PAUSED, false, pauseTime);
+        this.addRecordToBundleActionTable(job.getId(), "action1", 0, Job.Status.SUCCEEDED);
+        this.addRecordToBundleActionTable(job.getId(), "action2", 0, Job.Status.PAUSED);
+        addRecordToCoordJobTable("action1", CoordinatorJob.Status.SUCCEEDED, false, false);
+        addRecordToCoordJobTable("action2", CoordinatorJob.Status.PAUSED, false, false);
+
+        JPAService jpaService = Services.get().get(JPAService.class);
+        assertNotNull(jpaService);
+        BundleJobGetJPAExecutor bundleJobGetExecutor = new BundleJobGetJPAExecutor(job.getId());
+        job = jpaService.execute(bundleJobGetExecutor);
+        assertEquals(Job.Status.PAUSED, job.getStatus());
+
+        new BundleRerunXCommand(job.getId(), "action2", null, false, true).call();
+
+        job = jpaService.execute(bundleJobGetExecutor);
+        assertEquals(Job.Status.PAUSED, job.getStatus());
+        assertNotNull(job.getPauseTime());
+        assertFalse(job.isPending());
+    }
+
+    /**
+     * Test : Rerun suspended bundle job
+     *
+     * @throws Exception
+     */
+    public void testBundleRerunInSuspended() throws Exception {
+        BundleJobBean job = this.addRecordToBundleJobTable(Job.Status.SUSPENDED, false);
+        this.addRecordToBundleActionTable(job.getId(), "action1", 0, Job.Status.SUSPENDED);
+        this.addRecordToBundleActionTable(job.getId(), "action2", 0, Job.Status.SUSPENDED);
+        addRecordToCoordJobTable("action1", CoordinatorJob.Status.SUSPENDED, false, false);
+        addRecordToCoordJobTable("action2", CoordinatorJob.Status.SUSPENDED, false, false);
+
+        JPAService jpaService = Services.get().get(JPAService.class);
+        assertNotNull(jpaService);
+        BundleJobGetJPAExecutor bundleJobGetExecutor = new BundleJobGetJPAExecutor(job.getId());
+        job = jpaService.execute(bundleJobGetExecutor);
+        assertEquals(Job.Status.SUSPENDED, job.getStatus());
+
+        new BundleRerunXCommand(job.getId(), "action2", null, false, true).call();
+
+        job = jpaService.execute(bundleJobGetExecutor);
+        assertEquals(Job.Status.RUNNING, job.getStatus());
+    }
+
+    protected BundleJobBean addRecordToBundleJobTableWithPausedTime(Job.Status jobStatus, boolean pending, Date pausedTime) throws Exception {
+        BundleJobBean bundle = createBundleJob(jobStatus, pending);
+        bundle.setPauseTime(pausedTime);
+        try {
+            JPAService jpaService = Services.get().get(JPAService.class);
+            assertNotNull(jpaService);
+            BundleJobInsertJPAExecutor bundleInsertjpa = new BundleJobInsertJPAExecutor(bundle);
+            jpaService.execute(bundleInsertjpa);
+        }
+        catch (JPAExecutorException ce) {
+            ce.printStackTrace();
+            fail("Unable to insert the test bundle job record to table");
+            throw ce;
+        }
+        return bundle;
+    }
+
+    protected CoordinatorJobBean addRecordToCoordJobTable(String coordId, CoordinatorJob.Status status, boolean pending, boolean doneMatd) throws Exception {
+        CoordinatorJobBean coordJob = createCoordJob(status, pending, doneMatd);
         coordJob.setId(coordId);
         coordJob.setAppName(coordId);
         try {

@@ -43,6 +43,7 @@ import org.apache.oozie.util.ELEvaluator;
 import org.apache.oozie.util.Instrumentation;
 import org.apache.oozie.util.LogUtils;
 import org.apache.oozie.util.ParamChecker;
+import org.apache.oozie.util.StatusUtils;
 import org.apache.oozie.util.XConfiguration;
 import org.apache.oozie.util.XmlUtils;
 import org.jdom.Element;
@@ -104,9 +105,8 @@ public class CoordActionInputCheckXCommand extends CoordinatorXCommand<Void> {
 
             LOG.info("[" + actionId + "]::CoordActionInputCheck:: Missing deps:" + nonExistList.toString() + " "
                     + nonResolvedList.toString());
-            Date actualTime = new Date();
-            boolean status = checkInput(actionXml, existList, nonExistList, actionConf, actualTime);
-            coordAction.setLastModifiedTime(actualTime);
+            boolean status = checkInput(actionXml, existList, nonExistList, actionConf);
+            coordAction.setLastModifiedTime(currentTime);
             coordAction.setActionXml(actionXml.toString());
             if (nonResolvedList.length() > 0 && status == false) {
                 nonExistList.append(CoordCommandUtils.RESOLVED_UNRESOLVED_SEPARATOR).append(nonResolvedList);
@@ -118,13 +118,12 @@ public class CoordActionInputCheckXCommand extends CoordinatorXCommand<Void> {
                 queue(new CoordActionReadyXCommand(coordAction.getJobId()), 100);
             }
             else {
-                long waitingTime = (actualTime.getTime() - Math.max(coordAction.getNominalTime().getTime(), coordAction
+                long waitingTime = (currentTime.getTime() - Math.max(coordAction.getNominalTime().getTime(), coordAction
                         .getCreatedTime().getTime()))
                         / (60 * 1000);
                 int timeOut = coordAction.getTimeOut();
                 if ((timeOut >= 0) && (waitingTime > timeOut)) {
                     queue(new CoordActionTimeOutXCommand(coordAction), 100);
-                    coordAction.setStatus(CoordinatorAction.Status.TIMEDOUT);
                 }
                 else {
                     queue(new CoordActionInputCheckXCommand(coordAction.getId()), COMMAND_REQUEUE_INTERVAL);
@@ -134,7 +133,7 @@ public class CoordActionInputCheckXCommand extends CoordinatorXCommand<Void> {
             jpaService.execute(new org.apache.oozie.executor.jpa.CoordActionUpdateJPAExecutor(coordAction));
         }
         catch (Exception e) {
-            throw new CommandException(ErrorCode.E1005, e.getMessage(), e);
+            throw new CommandException(ErrorCode.E1021, e.getMessage(), e);
         }
         cron.stop();
 
@@ -148,17 +147,16 @@ public class CoordActionInputCheckXCommand extends CoordinatorXCommand<Void> {
      * @param existList the list of existed paths
      * @param nonExistList the list of non existed paths
      * @param conf action configuration
-     * @param actualTime current time
      * @return true if all input paths are existed
      * @throws Exception thrown of unable to check input path
      */
     protected boolean checkInput(StringBuilder actionXml, StringBuilder existList, StringBuilder nonExistList,
-            Configuration conf, Date actualTime) throws Exception {
+            Configuration conf) throws Exception {
         Element eAction = XmlUtils.parseXml(actionXml.toString());
         boolean allExist = checkResolvedUris(eAction, existList, nonExistList, conf);
         if (allExist) {
             LOG.debug("[" + actionId + "]::ActionInputCheck:: Checking Latest/future");
-            allExist = checkUnresolvedInstances(eAction, conf, actualTime);
+            allExist = checkUnresolvedInstances(eAction, conf);
         }
         if (allExist == true) {
             materializeDataProperties(eAction, conf);
@@ -216,15 +214,23 @@ public class CoordActionInputCheckXCommand extends CoordinatorXCommand<Void> {
      *
      * @param eAction action element
      * @param actionConf action configuration
-     * @param actualTime current time
      * @return true if successful to resolve input and output paths
      * @throws Exception thrown if failed to resolve data input and output paths
      */
     @SuppressWarnings("unchecked")
-    private boolean checkUnresolvedInstances(Element eAction, Configuration actionConf, Date actualTime)
-            throws Exception {
+    private boolean checkUnresolvedInstances(Element eAction, Configuration actionConf) throws Exception {
         String strAction = XmlUtils.prettyPrint(eAction).toString();
         Date nominalTime = DateUtils.parseDateUTC(eAction.getAttributeValue("action-nominal-time"));
+        String actualTimeStr = eAction.getAttributeValue("action-actual-time");
+        Date actualTime = null;
+        if (actualTimeStr == null) {
+            LOG.debug("Unable to get action-actual-time from action xml, this job is submitted " +
+            "from previous version. Assign current date to actual time, action = " + actionId);
+            actualTime = new Date();
+        } else {
+            actualTime = DateUtils.parseDateUTC(actualTimeStr);
+        }
+
         StringBuffer resultedXml = new StringBuffer();
 
         boolean ret;
@@ -471,10 +477,18 @@ public class CoordActionInputCheckXCommand extends CoordinatorXCommand<Void> {
                     + "]::CoordActionInputCheck:: Ignoring action. Should be in WAITING state, but state="
                     + coordAction.getStatus());
         }
-        if (coordJob.getStatus() != Job.Status.RUNNING && coordJob.getStatus() != Job.Status.PAUSED && coordJob.getStatus() != Job.Status.PAUSEDWITHERROR) {
-            throw new PreconditionException(ErrorCode.E1100, "[" + actionId
-                    + "]::CoordActionInputCheck:: Ignoring action. Coordinator job is not in RUNNING state, but state="
-                    + coordJob.getStatus());
+
+        // if eligible to do action input check when running with backward support is true
+        if (StatusUtils.getStatusForCoordActionInputCheck(coordJob)) {
+            return;
+        }
+
+        if (coordJob.getStatus() != Job.Status.RUNNING && coordJob.getStatus() != Job.Status.PAUSED
+                && coordJob.getStatus() != Job.Status.PAUSEDWITHERROR) {
+            throw new PreconditionException(
+                    ErrorCode.E1100, "["+ actionId + "]::CoordActionInputCheck:: Ignoring action." +
+                    		" Coordinator job is not in RUNNING/PAUSED/PAUSEDWITHERROR state, but state="
+                            + coordJob.getStatus());
         }
     }
 

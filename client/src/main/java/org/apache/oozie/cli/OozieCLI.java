@@ -603,12 +603,12 @@ public class OozieCLI {
                     String dateScope = null;
                     boolean refresh = false;
                     boolean noCleanup = false;
-
+                    if (options.contains(RERUN_ACTION_OPTION)) {
+                        throw new OozieCLIException("Invalid options provided for bundle rerun. " + RERUN_ACTION_OPTION
+                                + " is not valid for bundle rerun");
+                    }
                     if (options.contains(RERUN_DATE_OPTION)) {
                         dateScope = commandLine.getOptionValue(RERUN_DATE_OPTION);
-                    }
-                    else {
-                        throw new OozieCLIException("Must provide date range for bundle rerun");
                     }
 
                     if (options.contains(RERUN_COORD_OPTION)) {

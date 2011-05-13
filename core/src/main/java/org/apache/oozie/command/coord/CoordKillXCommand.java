@@ -34,6 +34,8 @@ import org.apache.oozie.service.JPAService;
 import org.apache.oozie.service.Services;
 import org.apache.oozie.util.LogUtils;
 import org.apache.oozie.util.ParamChecker;
+import org.apache.oozie.util.StatusUtils;
+
 import java.util.Date;
 import java.util.List;
 
@@ -82,10 +84,15 @@ public class CoordKillXCommand extends KillTransitionXCommand {
 
     @Override
     protected void verifyPrecondition() throws CommandException, PreconditionException {
+        // if namespace 0.1 is used and backward support is true, SUCCEEDED coord job can be killed
+        if (StatusUtils.isV1CoordjobKillable(coordJob)) {
+            return;
+        }
         if (coordJob.getStatus() == CoordinatorJob.Status.SUCCEEDED
-                || coordJob.getStatus() == CoordinatorJob.Status.FAILED) {
-            LOG.info("CoordKillCommand not killed - job either " + "finished successfully or does not exist "
-                    + jobId);
+                || coordJob.getStatus() == CoordinatorJob.Status.FAILED
+                || coordJob.getStatus() == CoordinatorJob.Status.DONEWITHERROR) {
+            LOG.info("CoordKillXCommand not killed - job either finished SUCCEEDED, FAILED or DONEWITHERROR, job id = "
+                    + jobId + ", status = " + coordJob.getStatus());
             throw new PreconditionException(ErrorCode.E1020, jobId);
         }
     }

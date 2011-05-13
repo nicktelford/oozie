@@ -87,7 +87,7 @@
             org.apache.oozie.service.DagEngineService,
             org.apache.oozie.service.CoordMaterializeTriggerService,
             org.apache.oozie.service.StatusTransitService,
-            org.apache.oozie.service.BundlePauseStartService
+            org.apache.oozie.service.PauseTransitService
         </value>
         <description>
             All services to be created and managed by Oozie Services singleton.
@@ -574,6 +574,7 @@
             coord:current=org.apache.oozie.coord.CoordELFunctions#ph1_coord_current_echo,
             coord:latest=org.apache.oozie.coord.CoordELFunctions#ph1_coord_latest_echo,
             coord:future=org.apache.oozie.coord.CoordELFunctions#ph1_coord_future_echo,
+            coord:formatTime=org.apache.oozie.coord.CoordELFunctions#ph1_coord_formatTime_echo,
             coord:user=org.apache.oozie.coord.CoordELFunctions#coord_user
         </value>
         <description>
@@ -619,7 +620,9 @@
             coord:dataIn=org.apache.oozie.coord.CoordELFunctions#ph1_coord_dataIn_echo,
             coord:dataOut=org.apache.oozie.coord.CoordELFunctions#ph1_coord_dataOut_echo,
             coord:nominalTime=org.apache.oozie.coord.CoordELFunctions#ph1_coord_nominalTime_echo_wrap,
+            coord:actualTime=org.apache.oozie.coord.CoordELFunctions#ph1_coord_actualTime_echo_wrap,
             coord:dateOffset=org.apache.oozie.coord.CoordELFunctions#ph1_coord_dateOffset_echo,
+            coord:formatTime=org.apache.oozie.coord.CoordELFunctions#ph1_coord_formatTime_echo,
             coord:actionId=org.apache.oozie.coord.CoordELFunctions#ph1_coord_actionId_echo,
             coord:name=org.apache.oozie.coord.CoordELFunctions#ph1_coord_name_echo,
             coord:user=org.apache.oozie.coord.CoordELFunctions#coord_user
@@ -715,6 +718,7 @@
             coord:future=org.apache.oozie.coord.CoordELFunctions#ph2_coord_future_echo,
             coord:actionId=org.apache.oozie.coord.CoordELFunctions#ph2_coord_actionId,
             coord:name=org.apache.oozie.coord.CoordELFunctions#ph2_coord_name,
+            coord:formatTime=org.apache.oozie.coord.CoordELFunctions#ph2_coord_formatTime,
             coord:user=org.apache.oozie.coord.CoordELFunctions#coord_user
         </value>
         <description>
@@ -763,6 +767,7 @@
             coord:current=org.apache.oozie.coord.CoordELFunctions#ph2_coord_current_echo,
             coord:latest=org.apache.oozie.coord.CoordELFunctions#ph2_coord_latest_echo,
             coord:future=org.apache.oozie.coord.CoordELFunctions#ph2_coord_future_echo,
+            coord:formatTime=org.apache.oozie.coord.CoordELFunctions#ph2_coord_formatTime,
             coord:user=org.apache.oozie.coord.CoordELFunctions#coord_user
         </value>
         <description>
@@ -855,7 +860,9 @@
             coord:dataIn=org.apache.oozie.coord.CoordELFunctions#ph3_coord_dataIn,
             coord:dataOut=org.apache.oozie.coord.CoordELFunctions#ph3_coord_dataOut,
             coord:nominalTime=org.apache.oozie.coord.CoordELFunctions#ph3_coord_nominalTime,
+            coord:actualTime=org.apache.oozie.coord.CoordELFunctions#ph3_coord_actualTime,
             coord:dateOffset=org.apache.oozie.coord.CoordELFunctions#ph3_coord_dateOffset,
+            coord:formatTime=org.apache.oozie.coord.CoordELFunctions#ph3_coord_formatTime,
             coord:actionId=org.apache.oozie.coord.CoordELFunctions#ph3_coord_actionId,
             coord:name=org.apache.oozie.coord.CoordELFunctions#ph3_coord_name,
             coord:user=org.apache.oozie.coord.CoordELFunctions#coord_user
@@ -1101,6 +1108,37 @@
         </description>
     </property>
 
+    <!-- StatusTransitService -->
+    <property>
+        <name>oozie.service.StatusTransitService.statusTransit.interval</name>
+        <value>60</value>
+        <description>
+            The frequency in seconds at which the StatusTransitService will run.
+        </description>
+    </property>
+    
+    <property>
+        <name>oozie.service.StatusTransitService.backward.support.for.coord.status</name>
+        <value>false</value>
+        <description>
+            true, if coordinator job submits using 'uri:oozie:coordinator:0.1' namespace and wants to keep Oozie 2.x status transit.
+            if set true,
+            1. SUCCEEDED state in coordinator job means materialization done.
+            2. No DONEWITHERROR state in coordinator job
+            3. No PAUSED or PREPPAUSED state in coordinator job
+            4. PREPSUSPENDED becomes SUSPENDED in coordinator job
+        </description>
+    </property>
+    
+    <!-- PauseTransitService -->
+    <property>
+        <name>oozie.service.PauseTransitService.PauseTransit.interval</name>
+        <value>60</value>
+        <description>
+            The frequency in seconds at which the PauseTransitService will run.
+        </description>
+    </property>
+    
     <!-- HadoopActionExecutor -->
     <!-- This is common to the subclasses action executors for map-reduce and pig -->
 

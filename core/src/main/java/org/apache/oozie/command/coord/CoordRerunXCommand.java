@@ -53,6 +53,7 @@ import org.apache.oozie.util.DateUtils;
 import org.apache.oozie.util.InstrumentUtils;
 import org.apache.oozie.util.LogUtils;
 import org.apache.oozie.util.ParamChecker;
+import org.apache.oozie.util.StatusUtils;
 import org.apache.oozie.util.XConfiguration;
 import org.apache.oozie.util.XLog;
 import org.apache.oozie.util.XmlUtils;
@@ -72,14 +73,13 @@ import org.jdom.JDOMException;
  */
 public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActionInfo> {
 
-    private String jobId;
     private String rerunType;
     private String scope;
     private boolean refresh;
     private boolean noCleanup;
     private CoordinatorJobBean coordJob = null;
     private JPAService jpaService = null;
-    private CoordinatorJob.Status prevStatus = null;
+    protected boolean prevPending;
 
     /**
      * The constructor for class {@link CoordRerunXCommand}
@@ -252,12 +252,15 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
      * @return true if all actions are eligible to rerun
      */
     private boolean checkAllActionsRunnable(List<CoordinatorActionBean> coordActions) {
+        boolean ret = false;
         for (CoordinatorActionBean coordAction : coordActions) {
+            ret = true;
             if (!coordAction.isTerminalStatus()) {
-                return false;
+                ret = false;
+                break;
             }
         }
-        return true;
+        return ret;
     }
 
     /**
@@ -315,8 +318,9 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
         }
         String jobXml = coordJob.getJobXml();
         Element eJob = XmlUtils.parseXml(jobXml);
+        Date actualTime = new Date();
         String actionXml = CoordCommandUtils.materializeOneInstance(jobId, dryrun, (Element) eJob.clone(), coordAction
-                .getNominalTime(), coordAction.getActionNumber(), jobConf, coordAction);
+                .getNominalTime(), actualTime, coordAction.getActionNumber(), jobConf, coordAction);
         LOG.debug("Refresh Action actionId=" + coordAction.getId() + ", actionXml="
                 + XmlUtils.prettyPrint(actionXml).toString());
         coordAction.setActionXml(actionXml);
@@ -390,7 +394,7 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
         }
         try {
             coordJob = jpaService.execute(new CoordJobGetJPAExecutor(jobId));
-            prevStatus = coordJob.getStatus();
+            prevPending = coordJob.isPending();
         }
         catch (JPAExecutorException je) {
             throw new CommandException(je);
@@ -405,9 +409,16 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
     protected void verifyPrecondition() throws CommandException, PreconditionException {
         if (coordJob.getStatus() == CoordinatorJob.Status.KILLED
                 || coordJob.getStatus() == CoordinatorJob.Status.FAILED) {
-            LOG.info("CoordRerunCommand is not able to run, job status=" + coordJob.getStatus() + ", jobid=" + jobId);
+            LOG.info("CoordRerunXCommand is not able to run, job status=" + coordJob.getStatus() + ", jobid=" + jobId);
             throw new CommandException(ErrorCode.E1018,
                     "coordinator job is killed or failed so all actions are not eligible to rerun!");
+        }
+
+        // no actioins have been created for PREP job
+        if (coordJob.getStatus() == CoordinatorJob.Status.PREP) {
+            LOG.info("CoordRerunXCommand is not able to run, job status=" + coordJob.getStatus() + ", jobid=" + jobId);
+            throw new CommandException(ErrorCode.E1018,
+                    "coordinator job is PREP so no actions are materialized to rerun!");
         }
     }
 
@@ -418,6 +429,7 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
 
     @Override
     public void rerunChildren() throws CommandException {
+        boolean isError = false;
         try {
             CoordinatorActionInfo coordInfo = null;
             InstrumentUtils.incrJobCounter(getName(), 1, getInstrumentation());
@@ -429,6 +441,7 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
                 coordActions = getCoordActionsFromIds(jobId, scope);
             }
             else {
+                isError = true;
                 throw new CommandException(ErrorCode.E1018, "date or action expected.");
             }
             if (checkAllActionsRunnable(coordActions)) {
@@ -448,6 +461,7 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
                 }
             }
             else {
+                isError = true;
                 throw new CommandException(ErrorCode.E1018, "part or all actions are not eligible to rerun!");
             }
             coordInfo = new CoordinatorActionInfo(coordActions);
@@ -455,13 +469,21 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
             ret = coordInfo;
         }
         catch (XException xex) {
+            isError = true;
             throw new CommandException(xex);
         }
         catch (JDOMException jex) {
+            isError = true;
             throw new CommandException(ErrorCode.E0700, jex);
         }
         catch (Exception ex) {
+            isError = true;
             throw new CommandException(ErrorCode.E1018, ex);
+        }
+        finally{
+            if(isError){
+                transitToPrevious();
+            }
         }
     }
 
@@ -477,35 +499,29 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
     @Override
     public void notifyParent() throws CommandException {
         //update bundle action
-        if (coordJob.getBundleId() != null) {
-            BundleStatusUpdateXCommand bundleStatusUpdate = new BundleStatusUpdateXCommand(coordJob, prevStatus);
+        if (getPrevStatus() != null && coordJob.getBundleId() != null) {
+            BundleStatusUpdateXCommand bundleStatusUpdate = new BundleStatusUpdateXCommand(coordJob, getPrevStatus());
             bundleStatusUpdate.call();
         }
     }
 
     @Override
     public void updateJob() throws CommandException {
-        updateCoordJobPending();
         try {
+            // rerun a paused coordinator job will keep job status at paused and pending at previous pending
+            if (getPrevStatus()!= null && getPrevStatus().equals(Job.Status.PAUSED)) {
+                coordJob.setStatus(Job.Status.PAUSED);
+                if (prevPending) {
+                    coordJob.setPending();
+                } else {
+                    coordJob.resetPending();
+                }
+            }
+
             jpaService.execute(new CoordJobUpdateJPAExecutor(coordJob));
         }
         catch (JPAExecutorException je) {
             throw new CommandException(je);
-        }
-    }
-
-    private void updateCoordJobPending() {
-        // if the job endtime == action endtime, we don't need to materialize this job anymore
-        Date endMatdTime = coordJob.getLastActionTime();
-        Date jobEndTime = coordJob.getEndTime();
-
-        if (jobEndTime == null || endMatdTime == null) {
-            return;
-        }
-
-        if (jobEndTime.compareTo(endMatdTime) <= 0) {
-            // set pending when materialization is done
-            coordJob.setPending();
         }
     }
 
@@ -515,5 +531,24 @@ public class CoordRerunXCommand extends RerunTransitionXCommand<CoordinatorActio
     @Override
     public XLog getLog() {
         return LOG;
+    }
+
+    @Override
+    public final void transitToNext() {
+        prevStatus = coordJob.getStatus();
+        coordJob.setStatus(Job.Status.RUNNING);
+        // used for backward support of coordinator 0.1 schema
+        coordJob.setStatus(StatusUtils.getStatusForCoordRerun(coordJob, prevStatus));
+        coordJob.setPending();
+    }
+
+    private final void transitToPrevious() throws CommandException {
+        coordJob.setStatus(getPrevStatus());
+        if (!prevPending) {
+            coordJob.resetPending();
+        }
+        else {
+            coordJob.setPending();
+        }
     }
 }

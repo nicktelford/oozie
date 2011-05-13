@@ -168,6 +168,7 @@ public enum ErrorCode {
     E1018(XLog.STD, "Coord Job Rerun Error: {0}"),
     E1019(XLog.STD, "Could not submit coord job, [{0}]"),
     E1020(XLog.STD, "Could not kill coord job, this job either finished successfully or does not exist , [{0}]"),
+    E1021(XLog.STD, "Coord Action Input Check Error: {0}"),
 
     E1100(XLog.STD, "Command precondition does not hold before execution"),
 
@@ -194,7 +195,7 @@ public enum ErrorCode {
     E1316(XLog.STD, "Bundle job can not be unpaused, {0}"),
     E1317(XLog.STD, "Invalid bundle job change value {0}, {1}"),
     E1318(XLog.STD, "No coord jobs for the bundle=[{0}], fail the bundle"),
-
+    E1319(XLog.STD, "Invalid bundle coord job namespace, [{0}]"),
 
     ETEST(XLog.STD, "THIS SHOULD HAPPEN ONLY IN TESTING, invalid job id [{0}]"),;
 

@@ -157,7 +157,7 @@ public class CoordELFunctions {
     /**
      * Returns the a date string while given a base date in 'strBaseDate',
      * offset and unit (e.g. DAY, MONTH, HOUR, MINUTE, MONTH).
-     * 
+     *
      * @param strBaseDate -- base date
      * @param offset -- any number
      * @param unit -- DAY, MONTH, HOUR, MINUTE, MONTH
@@ -195,7 +195,7 @@ public class CoordELFunctions {
      * 6. Action Creation Time
      * <p/>
      * 7. Existence of dataset's directory
-     * 
+     *
      * @param n :instance count
      *        <p/>
      *        domain: n >= 0, n is integer
@@ -290,7 +290,7 @@ public class CoordELFunctions {
     /**
      * Return nominal time or Action Creation Time.
      * <p/>
-     * 
+     *
      * @return coordinator action creation or materialization date time
      * @throws Exception if unable to format the Date object to String
      */
@@ -306,8 +306,27 @@ public class CoordELFunctions {
     }
 
     /**
+     * Convert from standard date-time formatting to a desired format.
+     * <p/>
+     * @param dateTimeStr - A timestamp in standard (ISO8601) format.
+     * @param format - A string representing the desired format.
+     * @return coordinator action creation or materialization date time
+     * @throws Exception if unable to format the Date object to String
+     */
+    public static String ph2_coord_formatTime(String dateTimeStr, String format)
+        throws Exception {
+        Date dateTime = DateUtils.parseDateUTC(dateTimeStr);
+        return DateUtils.formatDateCustom(dateTime, format);
+    }
+
+    public static String ph3_coord_formatTime(String dateTimeStr, String format)
+        throws Exception {
+        return ph2_coord_formatTime(dateTimeStr, format);
+    }
+
+    /**
      * Return Action Id. <p/>
-     * 
+     *
      * @return coordinator action Id
      */
     public static String ph2_coord_actionId() throws Exception {
@@ -323,7 +342,7 @@ public class CoordELFunctions {
 
     /**
      * Return Job Name. <p/>
-     * 
+     *
      * @return coordinator name
      */
     public static String ph2_coord_name() throws Exception {
@@ -339,7 +358,7 @@ public class CoordELFunctions {
 
     /**
      * Return Action Start time. <p/>
-     * 
+     *
      * @return coordinator action start time
      * @throws Exception if unable to format the Date object to String
      */
@@ -497,7 +516,7 @@ public class CoordELFunctions {
     /**
      * Configure an evaluator with data set and application specific information. <p/> Helper method of associating
      * dataset and application object
-     * 
+     *
      * @param evaluator : to set variables
      * @param ds : Data Set object
      * @param coordAction : Application instance
@@ -510,7 +529,7 @@ public class CoordELFunctions {
     /**
      * Helper method to wrap around with "${..}". <p/>
      *
-     * 
+     *
      * @param eval :EL evaluator
      * @param expr : expression to evaluate
      * @return Resolved expression or echo back the same expression
@@ -544,6 +563,11 @@ public class CoordELFunctions {
 
     public static String ph1_coord_dateOffset_echo(String n, String offset, String unit) {
         return echoUnResolved("dateOffset", n + " , " + offset + " , " + unit);
+    }
+
+    public static String ph1_coord_formatTime_echo(String dateTime, String format) {
+        // Quote the dateTime value since it would contain a ':'.
+        return echoUnResolved("formatTime", "'"+dateTime+"'" + " , " + format);
     }
 
     public static String ph1_coord_latest_echo(String n) {
@@ -593,6 +617,11 @@ public class CoordELFunctions {
 
     public static String ph1_coord_nominalTime_echo_fixed() {
         return "2009-03-06T010:00"; // Dummy resolution
+    }
+
+    public static String ph1_coord_actualTime_echo_wrap() {
+        // return "${coord:actualTime()}"; // no resolution
+        return echoUnResolved("actualTime", "");
     }
 
     public static String ph1_coord_actionId_echo() {

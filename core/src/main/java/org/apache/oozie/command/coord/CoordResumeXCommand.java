@@ -96,9 +96,9 @@ public class CoordResumeXCommand extends ResumeTransitionXCommand {
      */
     @Override
     protected void verifyPrecondition() throws CommandException, PreconditionException {
-        if (coordJob.getStatus() != CoordinatorJob.Status.SUSPENDED) {
-            throw new PreconditionException(ErrorCode.E1100, "CoordResumeCommand not Resumed - "
-                    + "job not in SUSPENDED state " + jobId);
+        if (coordJob.getStatus() != CoordinatorJob.Status.SUSPENDED && coordJob.getStatus() != Job.Status.PREPSUSPENDED) {
+            throw new PreconditionException(ErrorCode.E1100, "CoordResumeXCommand not Resumed - "
+                    + "job not in SUSPENDED/PREPSUSPENDED state, job = " + jobId);
         }
     }
 
@@ -108,7 +108,6 @@ public class CoordResumeXCommand extends ResumeTransitionXCommand {
     @Override
     public void updateJob() throws CommandException {
         InstrumentUtils.incrJobCounter(getName(), 1, getInstrumentation());
-        updateCoordJobPending();
         coordJob.setSuspendedTime(null);
         coordJob.setLastModifiedTime(new Date());
         LOG.debug("Resume coordinator job id = " + jobId + ", status = " + coordJob.getStatus() + ", pending = " + coordJob.isPending());
@@ -117,17 +116,6 @@ public class CoordResumeXCommand extends ResumeTransitionXCommand {
         }
         catch (JPAExecutorException e) {
             throw new CommandException(e);
-        }
-    }
-
-    private void updateCoordJobPending() {
-        // if the job endtime == action endtime, we don't need to materialize this job anymore
-        Date endMatdTime = coordJob.getLastActionTime();
-        Date jobEndTime = coordJob.getEndTime();
-
-        if (jobEndTime.compareTo(endMatdTime) <= 0) {
-            // set pending when materialization is done
-            coordJob.setPending();
         }
     }
 
@@ -140,16 +128,18 @@ public class CoordResumeXCommand extends ResumeTransitionXCommand {
             List<CoordinatorActionBean> actionList = jpaService.execute(new CoordJobGetActionsJPAExecutor(jobId));
 
             for (CoordinatorActionBean action : actionList) {
-                // queue a ResumeXCommand
-                if (action.getExternalId() != null) {
-                    queue(new ResumeXCommand(action.getExternalId()));
-                    updateCoordAction(action);
-                    LOG.debug("Resume coord action = [{0}], new status = [{1}], pending = [{2}] and queue ResumeXCommand for [{3}]",
-                                    action.getId(), action.getStatus(), action.getPending(), action.getExternalId());
-                }else {
-                    updateCoordAction(action);
-                    LOG.debug("Resume coord action = [{0}], new status = [{1}], pending = [{2}] and external id is null",
-                            action.getId(), action.getStatus(), action.getPending());
+                if(action.getStatus() == CoordinatorActionBean.Status.SUSPENDED){
+                    // queue a ResumeXCommand
+                    if (action.getExternalId() != null) {
+                        queue(new ResumeXCommand(action.getExternalId()));
+                        updateCoordAction(action);
+                        LOG.debug("Resume coord action = [{0}], new status = [{1}], pending = [{2}] and queue ResumeXCommand for [{3}]",
+                                action.getId(), action.getStatus(), action.getPending(), action.getExternalId());
+                    }else {
+                        updateCoordAction(action);
+                        LOG.debug("Resume coord action = [{0}], new status = [{1}], pending = [{2}] and external id is null",
+                                action.getId(), action.getStatus(), action.getPending());
+                    }
                 }
             }
         }
@@ -186,9 +176,7 @@ public class CoordResumeXCommand extends ResumeTransitionXCommand {
     }
 
     private void updateCoordAction(CoordinatorActionBean action) throws CommandException {
-        if(action.getStatus() == CoordinatorActionBean.Status.SUSPENDED){
-            action.setStatus(CoordinatorActionBean.Status.RUNNING);
-        }
+        action.setStatus(CoordinatorActionBean.Status.RUNNING);
         action.incrementAndGetPending();
         action.setLastModifiedTime(new Date());
         try {

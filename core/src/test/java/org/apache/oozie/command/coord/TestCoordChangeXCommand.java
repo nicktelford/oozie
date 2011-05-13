@@ -16,21 +16,26 @@ package org.apache.oozie.command.coord;
 
 import java.util.Date;
 
+import org.apache.oozie.CoordinatorActionBean;
 import org.apache.oozie.CoordinatorJobBean;
 import org.apache.oozie.ErrorCode;
+import org.apache.oozie.client.CoordinatorAction;
 import org.apache.oozie.client.CoordinatorJob;
+import org.apache.oozie.client.Job;
 import org.apache.oozie.client.CoordinatorJob.Execution;
+import org.apache.oozie.client.CoordinatorJob.Timeunit;
 import org.apache.oozie.command.CommandException;
+import org.apache.oozie.executor.jpa.CoordJobGetActionByActionNumberJPAExecutor;
 import org.apache.oozie.executor.jpa.CoordJobGetJPAExecutor;
 import org.apache.oozie.executor.jpa.CoordJobInsertJPAExecutor;
 import org.apache.oozie.executor.jpa.JPAExecutorException;
 import org.apache.oozie.service.JPAService;
 import org.apache.oozie.service.Services;
 import org.apache.oozie.store.StoreException;
-import org.apache.oozie.test.XTestCase;
+import org.apache.oozie.test.XDataTestCase;
 import org.apache.oozie.util.DateUtils;
 
-public class TestCoordChangeXCommand extends XTestCase {
+public class TestCoordChangeXCommand extends XDataTestCase {
     private Services services;
 
     @Override
@@ -85,8 +90,6 @@ public class TestCoordChangeXCommand extends XTestCase {
             ex.printStackTrace();
             fail("Invalid date" + ex);
         }
-
-
 
         new CoordChangeXCommand(jobId, "endtime=2011-12-01T05:00Z;pausetime=;concurrency=200").call();
         try {
@@ -193,7 +196,7 @@ public class TestCoordChangeXCommand extends XTestCase {
                 fail("Error code should be E1015.");
             }
         }
-        
+
         try {
             new CoordChangeXCommand(jobId, "pausetime=2009-02-01T01:08Z").call();
             fail("Should not reach here.");
@@ -203,6 +206,89 @@ public class TestCoordChangeXCommand extends XTestCase {
                 fail("Error code should be E1015.");
             }
         }
+    }
+
+    /**
+     * test end time change : pending should mark false if job is running with pending true
+     *
+     * @throws Exception
+     */
+    public void testCoordChangeEndTime() throws Exception {
+        Date start = DateUtils.parseDateUTC("2011-02-01T01:00Z");
+        Date end = DateUtils.parseDateUTC("2011-02-20T23:59Z");
+        final CoordinatorJobBean job = addRecordToCoordJobTable(CoordinatorJob.Status.RUNNING, start, end, true, true, 0);
+
+        new CoordChangeXCommand(job.getId(), "endtime=2012-12-01T05:00Z;pausetime=2011-11-01T05:00Z").call();
+        try {
+            checkCoordJobs(job.getId(), DateUtils.parseDateUTC("2012-12-01T05:00Z"), null, DateUtils
+                    .parseDateUTC("2011-11-01T05:00Z"), true);
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+            fail("Invalid date" + ex);
+        }
+
+        JPAService jpaService = Services.get().get(JPAService.class);
+        CoordJobGetJPAExecutor coordGetCmd = new CoordJobGetJPAExecutor(job.getId());
+        CoordinatorJobBean coordJob = jpaService.execute(coordGetCmd);
+        assertEquals(Job.Status.RUNNING, coordJob.getStatus());
+        assertFalse(coordJob.isDoneMaterialization());
+    }
+
+    /**
+     * test pause time change : pending should mark false if job is running with pending true.
+     * two actions should be removed for pause time changes.
+     *
+     * @throws Exception
+     */
+    public void testCoordChangePauseTime() throws Exception {
+        Date start = new Date();
+        Date end = new Date(start.getTime() + (20 * 60 * 1000));
+        Date pauseTime = new Date(start.getTime() + (10 * 60 * 1000));
+        String pauseTimeChangeStr = "pausetime="+ DateUtils.convertDateToString(pauseTime);
+        final CoordinatorJobBean job = addRecordToCoordJobTableForPauseTimeTest(CoordinatorJob.Status.RUNNING, start,
+                end, end, true, false, 4);
+        addRecordToCoordActionTable(job.getId(), 1, CoordinatorAction.Status.SUCCEEDED, "coord-action-get.xml", 0);
+        addRecordToCoordActionTable(job.getId(), 2, CoordinatorAction.Status.SUCCEEDED, "coord-action-get.xml", 0);
+        addRecordToCoordActionTable(job.getId(), 3, CoordinatorAction.Status.WAITING, "coord-action-get.xml", 0);
+        addRecordToCoordActionTable(job.getId(), 4, CoordinatorAction.Status.WAITING, "coord-action-get.xml", 0);
+
+        new CoordChangeXCommand(job.getId(), pauseTimeChangeStr).call();
+        JPAService jpaService = Services.get().get(JPAService.class);
+        CoordJobGetJPAExecutor coordGetCmd = new CoordJobGetJPAExecutor(job.getId());
+        CoordinatorJobBean coordJob = jpaService.execute(coordGetCmd);
+        assertEquals(DateUtils.convertDateToString(coordJob.getPauseTime()), DateUtils.convertDateToString(pauseTime));
+        assertEquals(Job.Status.RUNNING, coordJob.getStatus());
+        assertEquals(2, coordJob.getLastActionNumber());
+
+        CoordinatorActionBean actionBean = jpaService.execute(new CoordJobGetActionByActionNumberJPAExecutor(job.getId(), 3));
+        assertNull(actionBean);
+
+        actionBean = jpaService.execute(new CoordJobGetActionByActionNumberJPAExecutor(job.getId(), 4));
+        assertNull(actionBean);
+    }
+
+    protected CoordinatorJobBean addRecordToCoordJobTableForPauseTimeTest(CoordinatorJob.Status status, Date start,
+            Date end, Date lastActionTime, boolean pending, boolean doneMatd, int lastActionNum) throws Exception {
+        CoordinatorJobBean coordJob = createCoordJob(status, start, end, pending, doneMatd, lastActionNum);
+        coordJob.setFrequency(5);
+        coordJob.setTimeUnit(Timeunit.MINUTE);
+        coordJob.setLastActionNumber(lastActionNum);
+        coordJob.setLastActionTime(lastActionTime);
+        try {
+            JPAService jpaService = Services.get().get(JPAService.class);
+            assertNotNull(jpaService);
+            CoordJobInsertJPAExecutor coordInsertCmd = new CoordJobInsertJPAExecutor(coordJob);
+            jpaService.execute(coordInsertCmd);
+        }
+        catch (JPAExecutorException je) {
+            je.printStackTrace();
+            fail("Unable to insert the test coord job record to table");
+            throw je;
+        }
+
+        return coordJob;
+
     }
 
     private void addRecordToJobTable(String jobId) throws Exception {
@@ -220,7 +306,7 @@ public class TestCoordChangeXCommand extends XTestCase {
 
         String confStr = "<configuration></configuration>";
         coordJob.setConf(confStr);
-        String appXml = "<coordinator-app xmlns='uri:oozie:coordinator:0.1' name='NAME' frequency=\"5\" start='2009-02-01T01:00Z' end='2009-02-01T01:09Z' timezone='UTC' freq_timeunit='MINUTE' end_of_duration='NONE'>";
+        String appXml = "<coordinator-app xmlns='uri:oozie:coordinator:0.2' name='NAME' frequency=\"5\" start='2009-02-01T01:00Z' end='2009-02-01T01:09Z' timezone='UTC' freq_timeunit='MINUTE' end_of_duration='NONE'>";
         appXml += "<controls>";
         appXml += "<timeout>10</timeout>";
         appXml += "<concurrency>2</concurrency>";
@@ -291,15 +377,15 @@ public class TestCoordChangeXCommand extends XTestCase {
         try {
             JPAService jpaService = Services.get().get(JPAService.class);
             assertNotNull(jpaService);
-            CoordJobGetJPAExecutor coordInsertCmd = new CoordJobGetJPAExecutor(jobId);
+            CoordJobGetJPAExecutor coordGetCmd = new CoordJobGetJPAExecutor(jobId);
             CoordinatorJobBean job = null;
 
-            job = jpaService.execute(coordInsertCmd);
+            job = jpaService.execute(coordGetCmd);
 
             if (endTime != null) {
                 Date d = job.getEndTime();
                 if (d.compareTo(endTime) != 0) {
-                    fail("Endtime is not updated properly" + d + " " + endTime);
+                    fail("Endtime is not updated properly job_end_time=" + d + ", expected_end_time=" + endTime);
                 }
 
                 CoordinatorJob.Status status = job.getStatus();
@@ -320,12 +406,12 @@ public class TestCoordChangeXCommand extends XTestCase {
                 Date d = job.getPauseTime();
                 if (pauseTime == null) {
                     if (d != null) {
-                        fail("Pausetime is not updated properly" + d + " " + pauseTime);
+                        fail("Pausetime is not updated properly job_pause_time=" + d + ", expected_pause_time=" + pauseTime);
                     }
                 }
                 else {
                     if (d.compareTo(pauseTime) != 0) {
-                        fail("Pausetime is not updated properly" + d + " " + pauseTime);
+                        fail("Pausetime is not updated properly job_pause_time=" + d + ", expected_pause_time=" + pauseTime);
                     }
                 }
             }

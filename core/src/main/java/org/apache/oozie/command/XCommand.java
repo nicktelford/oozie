@@ -56,7 +56,7 @@ public abstract class XCommand<T> implements XCallable<T> {
 
     public static final Long DEFAULT_REQUEUE_DELAY = 10L;
 
-    public final XLog LOG = XLog.getLog(getClass());
+    public XLog LOG = XLog.getLog(getClass());
 
     private String key;
     private String name;
@@ -234,6 +234,7 @@ public abstract class XCommand<T> implements XCallable<T> {
         try {
             callCron.start();
             eagerLoadState();
+            LOG = XLog.resetPrefix(LOG);
             eagerVerifyPrecondition();
             try {
                 T ret = null;
@@ -247,6 +248,7 @@ public abstract class XCommand<T> implements XCallable<T> {
                 if (!isLockRequired() || (isLockRequired() && lock != null)) {
                     LOG.debug("Load state for [{0}]", getEntityKey());
                     loadState();
+                    LOG = XLog.resetPrefix(LOG);
                     LOG.debug("Precondition check for command [{0}] key [{1}]", getName(), getEntityKey());
                     verifyPrecondition();
                     LOG.debug("Execute command [{0}] key [{1}]", getName(), getEntityKey());

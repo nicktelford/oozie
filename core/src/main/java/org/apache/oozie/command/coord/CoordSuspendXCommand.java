@@ -38,6 +38,7 @@ import org.apache.oozie.service.Services;
 import org.apache.oozie.util.InstrumentUtils;
 import org.apache.oozie.util.LogUtils;
 import org.apache.oozie.util.ParamChecker;
+import org.apache.oozie.util.StatusUtils;
 
 /**
  * Suspend coordinator job and actions.
@@ -170,7 +171,6 @@ public class CoordSuspendXCommand extends SuspendTransitionXCommand {
     @Override
     public void updateJob() throws CommandException {
         InstrumentUtils.incrJobCounter(getName(), 1, getInstrumentation());
-        coordJob.setPending();
         coordJob.setLastModifiedTime(new Date());
         coordJob.setSuspendedTime(new Date());
         LOG.debug("Suspend coordinator job id = " + jobId + ", status = " + coordJob.getStatus() + ", pending = " + coordJob.isPending());
@@ -201,4 +201,25 @@ public class CoordSuspendXCommand extends SuspendTransitionXCommand {
     public Job getJob() {
         return coordJob;
     }
+
+    /**
+     * Transit job to suspended from running or to prepsuspended from prep.
+     *
+     * @see org.apache.oozie.command.TransitionXCommand#transitToNext()
+     */
+    @Override
+    public void transitToNext() {
+        if (coordJob == null) {
+            coordJob = (CoordinatorJobBean) this.getJob();
+        }
+        if (coordJob.getStatus() == Job.Status.PREP) {
+            coordJob.setStatus(Job.Status.PREPSUSPENDED);
+            coordJob.setStatus(StatusUtils.getStatus(coordJob));
+        }
+        else if (coordJob.getStatus() == Job.Status.RUNNING) {
+            coordJob.setStatus(Job.Status.SUSPENDED);
+        }
+        coordJob.setPending();
+    }
+
 }

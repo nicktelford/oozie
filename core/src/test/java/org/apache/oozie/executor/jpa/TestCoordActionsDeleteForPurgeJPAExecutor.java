@@ -30,9 +30,9 @@ public class TestCoordActionsDeleteForPurgeJPAExecutor extends XDataTestCase {
 
     public void testCoordActionDelForPurge() throws Exception {
         int actionNum = 1;
-        CoordinatorJobBean job = addRecordToCoordJobTable(CoordinatorJob.Status.RUNNING, false);
+        CoordinatorJobBean job = addRecordToCoordJobTable(CoordinatorJob.Status.RUNNING, false, false);
         CoordinatorActionBean action = addRecordToCoordActionTable(job.getId(), actionNum,
-                CoordinatorAction.Status.SUCCEEDED, "coord-action-get.xml");
+                CoordinatorAction.Status.SUCCEEDED, "coord-action-get.xml", 0);
         _testCoordActionDelForPurge(job.getId(), action.getId());
     }
 

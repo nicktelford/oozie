@@ -61,16 +61,20 @@ public class BundleJobResumeXCommand extends ResumeTransitionXCommand {
     public void resumeChildren() throws CommandException {
         try {
             for (BundleActionBean action : bundleActions) {
-                // queue a ResumeCommand
-                if (action.getCoordId() != null) {
-                    queue(new CoordResumeXCommand(action.getCoordId()));
-                    updateBundleAction(action);
-                    LOG.debug("Resume bundle action = [{0}], new status = [{1}], pending = [{2}] and queue CoordResumeXCommand for [{3}]",
-                            action.getBundleActionId(), action.getStatus(), action.getPending(), action.getCoordId());
-                } else {
-                    updateBundleAction(action);
-                    LOG.debug("Resume bundle action = [{0}], new status = [{1}], pending = [{2}] and coord id is null",
-                            action.getBundleActionId(), action.getStatus(), action.getPending());
+                if (action.getStatus() == Job.Status.SUSPENDED || action.getStatus() == Job.Status.PREPSUSPENDED) {
+                    // queue a CoordResumeXCommand
+                    if (action.getCoordId() != null) {
+                        queue(new CoordResumeXCommand(action.getCoordId()));
+                        updateBundleAction(action);
+                        LOG.debug("Resume bundle action = [{0}], new status = [{1}], pending = [{2}] and queue CoordResumeXCommand for [{3}]",
+                                        action.getBundleActionId(), action.getStatus(), action.getPending(), action
+                                                .getCoordId());
+                    }
+                    else {
+                        updateBundleAction(action);
+                        LOG.debug("Resume bundle action = [{0}], new status = [{1}], pending = [{2}] and coord id is null",
+                                        action.getBundleActionId(), action.getStatus(), action.getPending());
+                    }
                 }
             }
             LOG.debug("Resume bundle actions for the bundle=[{0}]", bundleId);
@@ -111,7 +115,6 @@ public class BundleJobResumeXCommand extends ResumeTransitionXCommand {
     @Override
     public void updateJob() throws CommandException {
         InstrumentUtils.incrJobCounter("bundle_resume", 1, null);
-        bundleJob.setPending();
         bundleJob.setSuspendedTime(null);
         bundleJob.setLastModifiedTime(new Date());
         LOG.debug("Resume bundle job id = " + bundleId + ", status = " + bundleJob.getStatus() + ", pending = " + bundleJob.isPending());

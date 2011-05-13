@@ -195,30 +195,24 @@ public class CoordSubmitXCommand extends SubmitTransitionXCommand {
 
         boolean exceptionOccured = false;
         try {
-            XLog.Info.get().setParameter(DagXLogInfoService.TOKEN, conf.get(OozieClient.LOG_TOKEN));
             mergeDefaultConfig();
 
             String appXml = readAndValidateXml();
             coordJob.setOrigJobXml(appXml);
-
-            if (this.bundleId != null) {
-                // this coord job is created from bundle
-                coordJob.setBundleId(this.bundleId);
-            }
-            if (this.coordName != null) {
-                // this coord job is created from bundle
-                coordJob.setAppName(this.coordName);
-            }
-
             LOG.debug("jobXml after initial validation " + XmlUtils.prettyPrint(appXml).toString());
+
+            String appNamespace = readAppNamespace(appXml);
+            coordJob.setAppNamespace(appNamespace);
+
             appXml = XmlUtils.removeComments(appXml);
             initEvaluators();
             Element eJob = basicResolveAndIncludeDS(appXml, conf, coordJob);
             LOG.debug("jobXml after all validation " + XmlUtils.prettyPrint(eJob).toString());
 
             jobId = storeToDB(eJob, coordJob);
-            // log job info for coordinator jobs
+            // log job info for coordinator job
             LogUtils.setLogInfo(coordJob, logInfo);
+            LOG = XLog.resetPrefix(LOG);
 
             if (!dryrun) {
                 // submit a command to materialize jobs for the next 1 hour (3600 secs)
@@ -237,7 +231,7 @@ public class CoordSubmitXCommand extends SubmitTransitionXCommand {
                 jobId = coordJob.getId();
                 LOG.info("[" + jobId + "]: Update status to RUNNING");
                 coordJob.setStatus(Job.Status.RUNNING);
-                coordJob.resetPending();
+                coordJob.setPending();
                 CoordActionMaterializeCommand coordActionMatCom = new CoordActionMaterializeCommand(jobId, startTime,
                         endTime);
                 Configuration jobConf = null;
@@ -314,6 +308,34 @@ public class CoordSubmitXCommand extends SubmitTransitionXCommand {
         catch (IOException ex) {
             LOG.warn("IOException :", ex);
             throw new CoordinatorJobException(ErrorCode.E0702, ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Read the application XML schema namespace
+     *
+     * @param xmlContent input coordinator xml
+     * @return app xml namespace
+     * @throws CoordinatorJobException
+     */
+    private String readAppNamespace(String xmlContent) throws CoordinatorJobException {
+        try {
+            Element coordXmlElement = XmlUtils.parseXml(xmlContent);
+            Namespace ns = coordXmlElement.getNamespace();
+            if (ns != null && bundleId != null && ns.getURI().equals(SchemaService.COORDINATOR_NAMESPACE_URI_1)) {
+                throw new CoordinatorJobException(ErrorCode.E1319, "bundle app can not submit coordinator namespace "
+                        + SchemaService.COORDINATOR_NAMESPACE_URI_1 + ", please use 0.2 or later");
+            }
+            if (ns != null) {
+                return ns.getURI();
+            }
+            else {
+                throw new CoordinatorJobException(ErrorCode.E0700, "the application xml namespace is not given");
+            }
+        }
+        catch (JDOMException ex) {
+            LOG.warn("JDOMException :", ex);
+            throw new CoordinatorJobException(ErrorCode.E0700, ex.getMessage(), ex);
         }
     }
 
@@ -926,7 +948,19 @@ public class CoordSubmitXCommand extends SubmitTransitionXCommand {
             throw new CommandException(ErrorCode.E0610);
         }
         coordJob = new CoordinatorJobBean();
+        if (this.bundleId != null) {
+            // this coord job is created from bundle
+            coordJob.setBundleId(this.bundleId);
+            // first use bundle id if submit thru bundle
+            logInfo.setParameter(DagXLogInfoService.JOB, this.bundleId);
+            LogUtils.setLogInfo(logInfo);
+        }
+        if (this.coordName != null) {
+            // this coord job is created from bundle
+            coordJob.setAppName(this.coordName);
+        }
         setJob(coordJob);
+
     }
 
     /* (non-Javadoc)
@@ -943,8 +977,8 @@ public class CoordSubmitXCommand extends SubmitTransitionXCommand {
     @Override
     public void notifyParent() throws CommandException {
         // update bundle action
-        if (this.bundleId != null) {
-            LOG.debug("Updating bundle record: " + bundleId + " for coord id: " + coordJob.getId());
+        if (coordJob.getBundleId() != null) {
+            LOG.debug("Updating bundle record: " + coordJob.getBundleId() + " for coord id: " + coordJob.getId());
             BundleStatusUpdateXCommand bundleStatusUpdate = new BundleStatusUpdateXCommand(coordJob, prevStatus);
             bundleStatusUpdate.call();
         }
@@ -955,5 +989,13 @@ public class CoordSubmitXCommand extends SubmitTransitionXCommand {
      */
     @Override
     public void updateJob() throws CommandException {
+    }
+
+    /* (non-Javadoc)
+     * @see org.apache.oozie.command.TransitionXCommand#getJob()
+     */
+    @Override
+    public Job getJob() {
+        return coordJob;
     }
 }
